@@ -19,9 +19,6 @@
 #include <archive_entry.h>
 #include <wchar.h>
 
-#define QUIET 1
-#define NOQUIET 0
-
 typedef enum {
 		Quiet,
 		Noquiet,
@@ -58,26 +55,6 @@ toUpper(char *str){
     return newstr;
 }
 
-
-/*
-char *
-int2charptr(int64_t input){
-		char *imode = malloc(( input == 0 ? 1 : (int)(log10(input)+1)));
-		sprintf(imode, "%ld", input);
-		return imode;
-}
-
-void
-print_int_checksum(int in){
-		unsigned char md[SHA256_DIGEST_LENGTH];
-		SHA256_CTX c;
-		SHA256_Init(&c);
-		int_into_SHA256_context(&c, in);
-		SHA256_Final(&(md[0]),&c);
-		pt(md);
-}
-*/
-
 int
 main(int argc, char **argv)
 {
@@ -111,6 +88,9 @@ main(int argc, char **argv)
 						archive_entry_gid,
 						archive_entry_size
 		};
+		/*
+		 * 16 characters should be enougth for all possible modefields
+		 */
 		char modes[(int)(sizeof(modefunctions)/sizeof(modefunctions[0]))][16];
 
 
