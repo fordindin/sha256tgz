@@ -59,20 +59,12 @@ toUpper(char *str){
 }
 
 
+/*
 char *
 int2charptr(int64_t input){
 		char *imode = malloc(( input == 0 ? 1 : (int)(log10(input)+1)));
 		sprintf(imode, "%ld", input);
 		return imode;
-}
-
-int
-int_into_SHA256_context(SHA256_CTX *c, int i){
-		char *m;
-		m = (char *)int2charptr(i);
-		SHA256_Update(c, m, sizeof(m));
-		free(m);
-		return 0;
 }
 
 void
@@ -84,6 +76,7 @@ print_int_checksum(int in){
 		SHA256_Final(&(md[0]),&c);
 		pt(md);
 }
+*/
 
 int
 main(int argc, char **argv)
@@ -104,10 +97,11 @@ main(int argc, char **argv)
 		int ch, i;
 		verbosity verb; 
 		char *modeline;
-		int modelinesize = 0;
-		uint64_t (*modefunctions[10])( struct archive_entry *entry) = {
+		int modelinesize;
+		uint64_t (*modefunctions[11])( struct archive_entry *entry) = {
 						archive_entry_mode,
 						archive_entry_dev,
+						archive_entry_devmajor,
 						archive_entry_devminor,
 						archive_entry_ino,
 						archive_entry_nlink,
@@ -117,7 +111,7 @@ main(int argc, char **argv)
 						archive_entry_gid,
 						archive_entry_size
 		};
-		char *modes[(int)(sizeof(modefunctions)/sizeof(modefunctions[0]))];
+		char modes[(int)(sizeof(modefunctions)/sizeof(modefunctions[0]))][16];
 
 
 		(void)realpath(argv[0], selfpath);
@@ -165,25 +159,31 @@ main(int argc, char **argv)
 			}
 	} 
 
+		int counter=0;
 		SHA256_Init(&c);
 		while ((r = archive_read_next_header(a, &entry)) == ARCHIVE_OK)
 		{
+				modelinesize = 0;
+				if ((++counter % 100) == 0) {
+						printf ("%09d ", counter);
+						printf("%s\n",archive_entry_pathname(entry));
+						}
 				if (regexec(&preg, archive_entry_pathname(entry), 0, NULL, 0) !=0)
 				{
 						SHA256_Update(&c, archive_entry_pathname(entry), sizeof(archive_entry_pathname(entry)));
 						//printf("%s\n",archive_entry_pathname(entry));
 						for (i=0; i  < sizeof(modefunctions)/sizeof(modefunctions[0]); i++){
-								modes[i] = int2charptr(modefunctions[i](entry));
+								sprintf(modes[i], "%ld", modefunctions[i](entry));
 								modelinesize += sizeof(modes[i]);
 						}
-						modeline = malloc(modelinesize+1);
+						modeline = malloc(modelinesize);
 						for (i=0; i  < sizeof(modefunctions)/sizeof(modefunctions[0]); i++){
 								if (i == 0){
-										strncpy(modes[i], modeline, sizeof(modes[i]));
+										strlcpy(modeline, modes[i], sizeof(modes[i]));
 								} else {
-										strncat(modes[i], modeline, sizeof(modes[i]));
+										strlcat(modeline, modes[i], sizeof(modes[i]));
 								}
-								free(modes[i]);
+								//free(modes[i]);
 						}
 						SHA256_Update(&c, modeline, modelinesize);
 						free(modeline);
