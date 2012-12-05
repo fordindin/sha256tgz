@@ -22,6 +22,11 @@
 #define QUIET 1
 #define NOQUIET 0
 
+typedef enum {
+		Quiet,
+		Noquiet,
+		Verbose } verbosity;
+
 const char *
 archive_entry_pathname(struct archive_entry *);
 int64_t
@@ -32,7 +37,7 @@ SHA256_End(SHA256_CTX *context, char *buf);
 void
 usage(char *selfpath)
 {
-		printf("Usage:\n\t%s [path_to_tar]\n", basename(selfpath));
+		printf("Usage:\n\t%s[-r <exclude_expression> [path_to_tar]\n", basename(selfpath));
 		exit(0);
 }
 void
@@ -55,9 +60,9 @@ toUpper(char *str){
 
 
 char *
-int2charptr(int input){
+int2charptr(int64_t input){
 		char *imode = malloc(( input == 0 ? 1 : (int)(log10(input)+1)));
-		sprintf(imode, "%d", input);
+		sprintf(imode, "%ld", input);
 		return imode;
 }
 
@@ -93,14 +98,26 @@ main(int argc, char **argv)
 		int64_t asize;
 		//char *exclude_pattern = ".*/\\.svn/.*";
 		//char buf[block];
-		SHA256_CTX c, lc;
+		SHA256_CTX c;
 		unsigned char md[SHA256_DIGEST_LENGTH];
 		regex_t preg;
-		int ch;
-		int quiet;
-		char *modes[11];
+		int ch, i;
+		verbosity verb; 
 		char *modeline;
-		int modelinesize;
+		int modelinesize = 0;
+		uint64_t (*modefunctions[10])( struct archive_entry *entry) = {
+						archive_entry_mode,
+						archive_entry_dev,
+						archive_entry_devminor,
+						archive_entry_ino,
+						archive_entry_nlink,
+						archive_entry_rdevmajor,
+						archive_entry_rdevminor,
+						archive_entry_uid,
+						archive_entry_gid,
+						archive_entry_size
+		};
+		char *modes[(int)(sizeof(modefunctions)/sizeof(modefunctions[0]))];
 
 
 		(void)realpath(argv[0], selfpath);
@@ -135,14 +152,19 @@ main(int argc, char **argv)
 	{
 			strncpy(tarpath, "stdin", sizeof("stdin"));
 			r = archive_read_open_filename(a, NULL, ARCHIVE_DEFAULT_BYTES_PER_BLOCK);
-			quiet = QUIET;
+			verb = Quiet;
 	} else
 	{
 			(void)realpath(argv[0], tarpath);
 			strcpy(origtarpath, argv[0]);
-			r = archive_read_open_filename(a, tarpath, ARCHIVE_DEFAULT_BYTES_PER_BLOCK);
-			quiet = NOQUIET;
-	}
+			if ((r = archive_read_open_filename(a, tarpath, ARCHIVE_DEFAULT_BYTES_PER_BLOCK)) == ARCHIVE_OK){
+					verb = Noquiet;
+			} else {
+					printf("%s\n", archive_error_string(a));
+					exit(1);
+			}
+	} 
+
 		SHA256_Init(&c);
 		while ((r = archive_read_next_header(a, &entry)) == ARCHIVE_OK)
 		{
@@ -150,66 +172,44 @@ main(int argc, char **argv)
 				{
 						SHA256_Update(&c, archive_entry_pathname(entry), sizeof(archive_entry_pathname(entry)));
 						//printf("%s\n",archive_entry_pathname(entry));
-						modes[0] = int2charptr(archive_entry_dev(entry));
-						modes[1] = int2charptr(archive_entry_mode(entry));
-						modes[2] = int2charptr(archive_entry_devmajor(entry));
-						modes[3] = int2charptr(archive_entry_devminor(entry));
-						modes[4] = int2charptr(archive_entry_ino(entry));
-						modes[5] = int2charptr(archive_entry_nlink(entry));
-						modes[6] = int2charptr(archive_entry_rdevmajor(entry));
-						modes[7] = int2charptr(archive_entry_rdevminor(entry));
-						modes[8] = int2charptr(archive_entry_size(entry));
-						modes[9] = int2charptr(archive_entry_uid(entry));
-						modes[10] = int2charptr(archive_entry_gid(entry));
-						modelinesize = 
-										sizeof(modes[0]) +
-										sizeof(modes[1]) +
-										sizeof(modes[2]) +
-										sizeof(modes[3]) +
-										sizeof(modes[4]) +
-										sizeof(modes[5]) +
-										sizeof(modes[6]) +
-										sizeof(modes[7]) +
-										sizeof(modes[8]) +
-										sizeof(modes[9]) +
-										sizeof(modes[10]);
+						for (i=0; i  < sizeof(modefunctions)/sizeof(modefunctions[0]); i++){
+								modes[i] = int2charptr(modefunctions[i](entry));
+								modelinesize += sizeof(modes[i]);
+						}
 						modeline = malloc(modelinesize+1);
-						snprintf(modeline,
-										modelinesize,
-										"%s%s%s%s%s%s%s%s%s%s%s",
-										modes[0],
-										modes[1],
-										modes[2],
-										modes[3],
-										modes[4],
-										modes[5],
-										modes[6],
-										modes[7],
-										modes[8],
-										modes[9],
-										modes[10]
-										);
+						for (i=0; i  < sizeof(modefunctions)/sizeof(modefunctions[0]); i++){
+								if (i == 0){
+										strncpy(modes[i], modeline, sizeof(modes[i]));
+								} else {
+										strncat(modes[i], modeline, sizeof(modes[i]));
+								}
+								free(modes[i]);
+						}
 						SHA256_Update(&c, modeline, modelinesize);
 						free(modeline);
-						if (archive_entry_filetype(entry) == AE_IFREG)
+						if (archive_entry_filetype(entry) == AE_IFLNK){
+								SHA256_Update(&c, archive_entry_symlink(entry), sizeof(archive_entry_symlink(entry)));
+						}
+						if (archive_entry_filetype(entry) == AE_IFREG
+								)
 						{
 								asize = archive_entry_size(entry);
 								entrydata = malloc(asize);
 								archive_read_data(a, entrydata, asize);
 								SHA256_Update(&c, entrydata, asize);
-								SHA256_Update(&lc, entrydata, asize);
-								SHA256_Final(&(md[0]),&lc);
-								pt(md);
+								//SHA256_Update(&lc, entrydata, asize);
+								//SHA256_Final(&(md[0]),&lc);
+								//pt(md);
 								free(entrydata);
 						}
-						} else
-						{
-								archive_read_data_skip(a);
-						}
+				} else
+				{
+						archive_read_data_skip(a);
+				}
 		}
 	if ( r == ARCHIVE_EOF )
 	{
-			if (quiet != QUIET)
+			if (verb != Quiet)
 					printf("%s (%s) = ", toUpper(basename(selfpath)), origtarpath);
 			SHA256_Final(&(md[0]),&c);
 			pt(md);
